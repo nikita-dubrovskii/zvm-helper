@@ -1,0 +1,15 @@
+[package]
+name = "zvm-helper"
+repository = "https://github.com/nikita-dubrovskii/zvm-helper"
+license = "Apache-2.0"
+edition = "2018"
+authors = ["Nikita Dubrovskii <nikita@linux.ibm.com>"]
+description = "zVM installation helper for Fedora CoreOS and RHEL CoreOS"
+version = "0.1.0"
+
+[dependencies]
+anyhow = "^1.0.41"
+clap = "^2.27.0"
+chrono = "*"
+reqwest = { version = ">= 0.11.4", features = ["blocking"] }
+
