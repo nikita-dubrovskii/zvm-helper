@@ -43,14 +43,14 @@ pub fn ipl_zvm_guest(cfg: &Config) -> Result<()> {
 
 fn enable_vmur_dev() -> Result<()> {
     runcmd!("modprobe", "vmur")?;
-    for id in ["000c", "000d", "000e"] {
-        let status = Command::new("cio_ignore")
+    for id in ["c", "d", "e"] {
+        let output = Command::new("cio_ignore")
             .arg("--is-ignored")
             .arg(id)
-            .status()
+            .output()
             .with_context(|| format!("running 'cio_ignore --is-ignored {}'", id))?;
-        //If it is on the blacklist, the exit code is 0. If it is not on the blacklist, the exit code is 2.
-        if !status.success() {
+        let output = String::from_utf8(output.stdout)?;
+        if output.contains("is ignored") {
             runcmd!("cio_ignore", "--remove", id)?;
         }
         runcmd!("chccwdev", "--online", id)?;
