@@ -53,7 +53,7 @@ pub fn parse_args() -> Result<Config> {
                          .help("Add extra kargs")
                          .multiple(true)
                          .takes_value(true)
-                         .default_value("console=ttysclp0 random.trust_cpu=on zfcp.allow_lun_scan=0 cio_ignore=all,!condev"),
+                         .default_value("random.trust_cpu=on zfcp.allow_lun_scan=0 cio_ignore=all,!condev"),
                 )
                 .arg(
                     Arg::with_name("dasd")
