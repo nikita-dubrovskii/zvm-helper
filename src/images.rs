@@ -10,28 +10,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::config::{ImagesConfig, LiveImages};
-use anyhow::*;
+use crate::cmdline::{Images, InstallConfig, Live};
+use anyhow::{bail, Context, Result};
 use reqwest::Url;
 use std::env::current_dir;
 use std::fs::{metadata, File};
 use std::io::{copy, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 
-pub fn download_images(images: &ImagesConfig) -> Result<()> {
-    match images {
-        ImagesConfig::Build(build) => {
-            let live = LiveImages::from(build);
-            download_live_images(&live)
-        }
-        ImagesConfig::Live(live) => download_live_images(live),
+pub fn download_images(config: &InstallConfig) -> Result<()> {
+    match &config.images {
+        Images::Artifacts(build) => download_live_images(&Live::from(build)),
+        Images::LiveImages(live) => download_live_images(live),
     }
 }
 
-fn download_live_images(live: &LiveImages) -> Result<()> {
-    download(&live.live_kernel)?;
-    download(&live.live_rootfs)?;
-    download(&live.live_initrd)?;
+fn download_live_images(live: &Live) -> Result<()> {
+    download(&live.kernel)?;
+    download(&live.initrd)?;
     Ok(())
 }
 

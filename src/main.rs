@@ -11,15 +11,19 @@
 // limitations under the License.
 
 mod cmdline;
-mod config;
 mod images;
 mod ipl;
 
+use crate::cmdline::*;
 use anyhow::Result;
+use clap::Parser;
 
 fn main() -> Result<()> {
-    let config = cmdline::parse_args()?;
-    println!("{}", config);
-    images::download_images(&config.images)?;
-    ipl::ipl_zvm_guest(&config)
+    match Cmd::parse() {
+        Cmd::Install(c) => {
+            println!("{}", c);
+            images::download_images(&c)?;
+            ipl::ipl_zvm_guest(&c)
+        }
+    }
 }
