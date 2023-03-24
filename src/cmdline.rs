@@ -10,345 +10,261 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::str::FromStr;
-
-use crate::config::*;
-use anyhow::*;
+use anyhow::{anyhow, Context};
 use chrono::prelude::*;
-use clap::{crate_version, App, AppSettings, Arg, ArgMatches, SubCommand};
+use clap::{AppSettings, Parser, ValueEnum};
 use reqwest::Url;
+use std::borrow::Cow;
+use std::env::current_dir;
+use std::fmt;
 
-pub fn parse_args() -> Result<Config> {
-    let matches = App::new("zvm-helper")
-        .version(crate_version!())
-        .global_setting(AppSettings::ColorAuto)
-        .global_setting(AppSettings::DeriveDisplayOrder)
-        .global_setting(AppSettings::UnifiedHelpMessage)
-        .subcommand(
-            SubCommand::with_name("install")
-                .arg(
-                    Arg::with_name("zvm")
-                        .long("zvm")
-                        .help("Set tartget zVM")
-                        .required(true)
-                        .takes_value(true)
-                        .default_value("t8360003"),
-                )
-                .arg(
-                    Arg::with_name("ignition")
-                        .long("ignition")
-                        .help("Set ignition URL")
-                        .required(true)
-                        .default_value("http://172.18.10.243/configs/ignition.ign")
-                        .takes_value(true),
-                )
-                .arg(Arg::with_name("dfltcc")
-                         .long("dfltcc")
-                         .help("Disable dfltcc")
-                         .default_value("0")
-                         .takes_value(false),
-                )
-                .arg(Arg::with_name("cmdline")
-                         .long("kargs")
-                         .help("Add extra kargs")
-                         .multiple(true)
-                         .takes_value(true)
-                         .default_value("random.trust_cpu=on zfcp.allow_lun_scan=0 cio_ignore=all,!condev"),
-                )
-                .arg(
-                    Arg::with_name("dasd")
-                        .long("dasd")
-                        .help("Set CoreOS installation target to DASD disk")
-                        .takes_value(true)
-                        .conflicts_with_all(&["fba", "scsi", "multipath"]),
-                )
-                .arg(
-                    Arg::with_name("fba")
-                        .long("fba")
-                        .help("Set CoreOS installation target to EDEV(FBA) disk")
-                        .takes_value(true)
-                        .conflicts_with_all(&["dasd", "scsi", "multipath"]),
-                )
-                .arg(
-                    Arg::with_name("scsi")
-                        .long("scsi")
-                        .help("Set CoreOS installation target to zFCP disk")
-                        .takes_value(true)
-                        .conflicts_with_all(&["fba", "dasd", "multipath"]),
-                )
-                .arg(
-                    Arg::with_name("multipath")
-                        .long("mp")
-                        .help("Set CoreOS installation target to Multipath disk")
-                        .multiple(true)
-                        .min_values(2)
-                        .takes_value(true),
-                )
-                .arg(
-                    Arg::with_name("znet")
-                        .long("znet")
-                        .help("Set zVM network device (rd.znet)")
-                        .takes_value(true)
-                        .default_value("qeth,0.0.bdf0,0.0.bdf1,0.0.bdf2,layer2=1,portno=0"),
-                )
-                .arg(
-                    Arg::with_name("ip")
-                        .long("ip")
-                        .help("Set CoreOs IP address")
-                        .takes_value(true)
-                        .default_value("172.18.142.3"),
-                )
-                .arg(
-                    Arg::with_name("gateway")
-                        .long("gw")
-                        .help("Set CoreOs gateway")
-                        .takes_value(true)
-                        .default_value("172.18.0.1"),
-                )
-                .arg(
-                    Arg::with_name("netmask")
-                        .long("nm")
-                        .help("Set CoreOs IP netmask")
-                        .takes_value(true)
-                        .default_value("255.254.0.0"),
-                )
-                .arg(
-                    Arg::with_name("hostname")
-                        .long("hostname")
-                        .help("Set CoreOs hostname")
-                        .takes_value(true)
-                        .default_value("coreos"),
-                )
-                .arg(
-                    Arg::with_name("nic")
-                        .long("nic")
-                        .help("Set CoreOs nic name")
-                        .takes_value(true)
-                        .default_value("encbdf0"),
-                )
-                .arg(
-                    Arg::with_name("dhcp")
-                        .long("dchp")
-                        .help("Set CoreOs dhcp mode")
-                        .takes_value(true)
-                        .default_value("off"),
-                )
-                .arg(
-                    Arg::with_name("nameserver")
-                        .long("ns")
-                        .help("Set CoreOs nameserver")
-                        .takes_value(true)
-                        .default_value("172.18.0.1"),
-                )
-                .subcommand(
-                    SubCommand::with_name("set-build-images")
-                        .about("Set the CoreOS builder host and image-name's template")
-                        .arg(
-                            Arg::with_name("url")
-                                .long("url")
-                                .help("Specify the CoreOS builder URL")
-                                .default_value("http://172.18.10.243")
-                                .takes_value(true),
-                        )
-                        .arg(
-                            Arg::with_name("variant")
-                                .long("variant")
-                                .help("Set variant of CoreOS: Fedora or RedHat")
-                                .possible_values(&["fcos", "rhcos"])
-                                .default_value("fcos")
-                                .takes_value(true),
-                        )
-                        .arg(
-                            Arg::with_name("version")
-                                .long("version")
-                                .help("Set version of CoreOS")
-                                .default_value("34")
-                                .takes_value(true),
-                        )
-                        .arg(
-                            Arg::with_name("date")
-                                .long("date")
-                                .help("Set build date of CoreOS")
-                                .takes_value(true),
-                        )
-                        .arg(
-                            Arg::with_name("time")
-                                .long("time")
-                                .help("Set build time of CoreOS")
-                                .takes_value(true),
-                        )
-                        .arg(
-                            Arg::with_name("id")
-                                .long("id")
-                                .help("Set build id of CoreOS")
-                                .default_value("0")
-                                .takes_value(true),
-                        ),
-                )
-                .subcommand(
-                    SubCommand::with_name("set-live-images")
-                        .about("Set the CoreOS live images")
-                        .arg(
-                            Arg::with_name("kernel")
-                                .long("kernel")
-                                .help("Set CoreOS live-kernel URL")
-                                .takes_value(true),
-                        )
-                        .arg(
-                            Arg::with_name("initrd")
-                                .long("initrd")
-                                .help("Set CoreOS live-initrd image URL")
-                                .takes_value(true),
-                        )
-                        .arg(
-                            Arg::with_name("rootfs")
-                                .long("rootfs")
-                                .help("Set CoreOS live-rootfs image URL")
-                                .takes_value(true),
-                        ),
-                ),
-        )
-        .get_matches();
-
-    let matches = matches
-        .subcommand_matches("install")
-        .context("Missing install")?;
-
-    let images = if let Some(build) = matches.subcommand_matches("set-build-images") {
-        parse_build_config(build)?
-    } else if let Some(live) = matches.subcommand_matches("set-live-images") {
-        parse_live_config(live)?
-    } else {
-        bail!("Missing CoreOs images options")
-    };
-
-    Ok(Config {
-        zvm: parse_zvm_config(&matches)?,
-        network: parse_network_config(&matches)?,
-        target: parse_target_config(&matches)?,
-        images,
-    })
+#[derive(Debug, Parser)]
+#[clap(name = "zvmhelper", version)]
+#[clap(global_setting(AppSettings::DeriveDisplayOrder))]
+#[clap(args_conflicts_with_subcommands = true)]
+#[clap(disable_help_subcommand = true)]
+#[clap(help_expected = true)]
+pub enum Cmd {
+    /// Install zVM using given arguments
+    Install(InstallConfig),
 }
 
-fn parse_zvm_config(am: &ArgMatches) -> Result<ZvmConfig> {
-    Ok(ZvmConfig {
-        zvm: am
-            .value_of("zvm")
-            .map(String::from)
-            .expect("zvm is missing"),
-        ignition: am
-            .value_of("ignition")
-            .map(Url::parse)
-            .expect("ignition is missing")
-            .context("Parsing ignition URL")?,
-        dfltcc: am
-            .value_of("dfltcc")
-            .map(|s| s.parse::<bool>().expect("parsing dfltcc")),
-        cmdline: am.value_of("cmdline").map(String::from),
-    })
+#[derive(Debug, Parser)]
+pub struct InstallConfig {
+    /// zVM target
+    #[clap(long, short, value_name = "zVM", default_value = "a3e29008")]
+    pub zvm: String,
+
+    /// zVM target
+    #[clap(long, short, value_name = "IGNITION_CONFIG")]
+    pub ignition: String,
+
+    /// dfltcc option
+    #[clap(long, value_name = "DFLTCC")]
+    pub dfltcc: Option<bool>,
+
+    /// extra kargs
+    #[clap(long, short, value_name = "CMDLINE")]
+    pub cmdline: Option<String>,
+
+    /// Dasd
+    #[clap(long, value_name = "DASD")]
+    pub dasd: Option<String>,
+
+    /// Edev
+    #[clap(
+        long,
+        value_name = "EDEV",
+        conflicts_with = "dasd",
+        conflicts_with = "scsi",
+        conflicts_with = "mp"
+    )]
+    pub edev: Option<String>,
+
+    /// Scsi
+    #[clap(
+        long,
+        value_name = "SCSI",
+        conflicts_with = "dasd",
+        conflicts_with = "edev",
+        conflicts_with = "mp"
+    )]
+    pub scsi: Option<String>,
+
+    /// Multipath
+    #[clap(
+        long,
+        value_name = "MULTIPATH",
+        conflicts_with = "dasd",
+        conflicts_with = "scsi",
+        conflicts_with = "edev"
+    )]
+    pub mp: Option<Vec<String>>,
+
+    /// zVM network device (rd.znet)
+    #[clap(
+        long,
+        value_name = "ZNET",
+        default_value = "qeth,0.0.bdf0,0.0.bdf1,0.0.bdf2,layer2=1,portno=0"
+    )]
+    pub znet: String,
+
+    /// Guest ip= karg
+    #[clap(
+        long,
+        value_name = "IP",
+        default_value = "172.23.237.227::172.23.0.1:255.255.0.0:coreos:encbdf0:none"
+    )]
+    pub ip: String,
+
+    /// Guest nameserver= karg
+    #[clap(long, value_name = "NAMESERVER", default_value = "172.23.0.1")]
+    pub dns: Vec<String>,
+
+    ///Images
+    #[clap(subcommand)]
+    pub images: Images,
 }
 
-fn parse_target_config(am: &ArgMatches) -> Result<DiskConfig> {
-    if am.is_present("dasd") {
-        Ok(DiskConfig::Dasd(DasdDisk {
-            dasd: am.value_of("dasd").map(String::from).unwrap(),
-        }))
-    } else if am.is_present("fba") {
-        Ok(DiskConfig::Fba(FbaDisk {
-            fba: am.value_of("fba").map(String::from).unwrap(),
-        }))
-    } else if am.is_present("scsi") {
-        Ok(DiskConfig::Scsi(ScsiDisk {
-            scsi: am.value_of("scsi").map(String::from).unwrap(),
-        }))
-    } else if am.is_present("multipath") {
-        Ok(DiskConfig::Multipath(MultipathDisks {
-            scsi: am
-                .values_of("multipath")
-                .unwrap()
-                .map(String::from)
-                .collect(),
-        }))
-    } else {
-        bail!("Installation target is missing")
+#[derive(Debug, Parser)]
+pub enum Images {
+    /// Set live images
+    LiveImages(Live),
+
+    /// Set build artifacts
+    Artifacts(Build),
+}
+
+#[derive(Debug, Parser)]
+pub struct Live {
+    /// Base URL for kernel
+    #[clap(long, value_name = "VMLINUZ")]
+    pub kernel: Url,
+    /// Base URL for initrd
+    #[clap(long, value_name = "INITRD")]
+    pub initrd: Url,
+    /// Base URL for rootfs
+    #[clap(long, value_name = "ROOTFS")]
+    pub rootfs: Url,
+}
+
+#[derive(Debug, Clone, ValueEnum)]
+#[allow(clippy::upper_case_acronyms)]
+pub enum CoreOS {
+    FCOS,
+    RHCOS,
+}
+
+#[derive(Debug, Parser)]
+pub struct Build {
+    /// Base URL for builder
+    #[clap(long, value_name = "URL", default_value = "http://172.23.236.43")]
+    pub url: Url,
+    /// CoreOS variant
+    #[clap(value_enum)]
+    #[clap(long, value_name = "VARIANT", default_value = "fcos")]
+    pub variant: CoreOS,
+    /// CoreOS version
+    #[clap(long, value_name = "VERSION", default_value = "37")]
+    pub version: String,
+    /// Build date
+    #[clap(long, value_name = "DATE")]
+    pub date: Option<String>,
+    /// Build time
+    #[clap(long, value_name = "TIME")]
+    pub time: Option<String>,
+    /// Build id
+    #[clap(long, value_name = "ID", default_value = "0")]
+    pub id: u32,
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use clap::IntoApp;
+
+    #[test]
+    fn clap_app() {
+        Cmd::command().debug_assert()
     }
 }
 
-fn parse_network_config(am: &ArgMatches) -> Result<NetworkConfig> {
-    Ok(NetworkConfig {
-        ip: am.value_of("ip").map(String::from).expect("IP is missing"),
-        id: "".to_string(),
-        gw: am
-            .value_of("gateway")
-            .map(String::from)
-            .expect("Missing `gateway`"),
-        mask: am
-            .value_of("netmask")
-            .map(String::from)
-            .expect("Missing `netmask`"),
-        hostname: am
-            .value_of("hostname")
-            .map(String::from)
-            .expect("Missing `hostname`"),
-        nic: am.value_of("nic").map(String::from).expect("Missing `nic`"),
-        dhcp: am
-            .value_of("dhcp")
-            .map(String::from)
-            .expect("Missing `dhcp`"),
-        nameserver: am
-            .value_of("nameserver")
-            .map(String::from)
-            .expect("Missing `nameserver`"),
-        znet: am
-            .value_of("znet")
-            .map(String::from)
-            .expect("Missing `znet`"),
-    })
-}
-
-fn parse_live_config(am: &ArgMatches) -> Result<ImagesConfig> {
-    let parse = |s: &str| {
-        let url = match std::fs::canonicalize(s).with_context(|| format!("canonicalizing: '{}'", s))
-        {
-            Ok(path) => match Url::from_file_path(path.as_path()) {
-                Ok(url) => url,
-                _ => bail!("parsing URL from '{}'", path.display()),
-            },
-            _ => Url::from_str(s).with_context(|| format!("parsing '{}'", s))?,
+impl From<&Build> for Live {
+    fn from(images: &Build) -> Self {
+        let generate = |image: &str| {
+            let date = match images.date.as_ref() {
+                Some(v) => Cow::from(v),
+                _ => {
+                    let now = chrono::Local::now();
+                    Cow::from(format!("{}{:02}{:02}", now.year(), now.month(), now.day()))
+                }
+            };
+            let name = match images.variant {
+                // fedora-coreos-37.20230314.dev.0-live-
+                CoreOS::FCOS => {
+                    format!(
+                        "fedora-coreos-{}.{}.dev.{}-live-{}",
+                        images.version, date, images.id, image
+                    )
+                }
+                // rhcos-413.92.202303141019-0-live-
+                CoreOS::RHCOS => {
+                    format!(
+                        "rhcos-{}.{}{}-0-live-{}",
+                        images.version,
+                        date,
+                        images
+                            .time
+                            .as_ref()
+                            .context("RHCOS artifacts require build time")?,
+                        image
+                    )
+                }
+            };
+            if images.url.scheme() == "http" {
+                images
+                    .url
+                    .join(&name)
+                    .with_context(|| format!("joining '{}' '{}'", images.url, name))
+            } else {
+                let path = current_dir().context("CWD")?.join(name);
+                match Url::from_file_path(&path) {
+                    Ok(url) => Ok(url),
+                    _ => Err(anyhow!("Building URL from {:?}", path)),
+                }
+            }
         };
-        Ok(url)
-    };
-
-    Ok(ImagesConfig::Live(LiveImages {
-        live_kernel: parse(am.value_of("kernel").expect("Missing `kernel`"))?,
-        live_initrd: parse(am.value_of("initrd").expect("Missing `initrd`"))?,
-        live_rootfs: parse(am.value_of("rootfs").expect("Missing `rootfs`"))?,
-    }))
+        Live {
+            kernel: generate("kernel-s390x").unwrap(),
+            initrd: generate("initramfs.s390x.img").unwrap(),
+            rootfs: generate("rootfs.s390x.img").unwrap(),
+        }
+    }
 }
 
-fn parse_build_config(am: &ArgMatches) -> Result<ImagesConfig> {
-    let date = {
-        let now = chrono::Local::now();
-        format!("{}{:02}{:02}", now.year(), now.month(), now.day())
-    };
-    Ok(ImagesConfig::Build(BuildImages {
-        url: am
-            .value_of("url")
-            .map(Url::parse)
-            .transpose()
-            .context("Parsing builder url")?,
-        variant: match am.value_of("variant").expect("CoreOS variant is missing") {
-            "fcos" => CoreOsVariant::Fedora,
-            _ => CoreOsVariant::RedHat,
-        },
-        version: am
-            .value_of("version")
-            .map(String::from)
-            .expect("CoreOS version is missing"),
-        date: am.value_of("date").map(String::from).unwrap_or(date),
-        time: am.value_of("time").map(String::from),
-        id: am
-            .value_of("id")
-            .map(|s| s.parse::<u32>().expect("converting id")),
-    }))
+impl fmt::Display for InstallConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Installing CoreOS:\nzVM:\t{}\nIP:\t{}\n{}\n",
+            self.zvm, self.ip, self.images
+        )?;
+        write!(
+            f,
+            "Ignition:\t{}\ndfltcc:\t{:?}\nCmdline:\t{:?}",
+            self.ignition, self.dfltcc, self.cmdline
+        )?;
+        if let Some(dasd) = self.dasd.as_ref() {
+            write!(f, "Target:\n\tECKD-DASD: {}\n", dasd)?;
+        }
+        if let Some(edev) = self.edev.as_ref() {
+            write!(f, "Target:\n\tEDEV-DASD(FBA): {}\n", edev)?;
+        }
+        if let Some(scsi) = self.scsi.as_ref() {
+            write!(f, "Target:\n\tzFCP: {}\n", scsi)?;
+        }
+        if let Some(mp) = self.mp.as_ref() {
+            write!(f, "Target:\n\tMultipath: {:?}\n", mp)?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for Live {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Live:\n\tkernel: {}\n\tinitrd: {}\n\trootfs: {}",
+            self.kernel, self.initrd, self.rootfs
+        )
+    }
+}
+
+impl fmt::Display for Images {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::LiveImages(images) => images.fmt(f),
+            Self::Artifacts(build) => Live::from(build).fmt(f),
+        }
+    }
 }
