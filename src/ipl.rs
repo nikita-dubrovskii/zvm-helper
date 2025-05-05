@@ -152,7 +152,7 @@ fn parm(cfg: &InstallConfig) -> String {
 
     // cmdline
     if let Some(cmdline) = &cfg.cmdline {
-        s.push_str(&format!(" dfltcc={}", cmdline));
+        s.push_str(&format!(" {}", cmdline));
     }
 
     s
