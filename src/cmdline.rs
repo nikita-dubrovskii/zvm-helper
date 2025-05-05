@@ -12,7 +12,7 @@
 
 use anyhow::{anyhow, Context};
 use chrono::prelude::*;
-use clap::{AppSettings, Parser, ValueEnum};
+use clap::{Parser, ValueEnum};
 use reqwest::Url;
 use std::borrow::Cow;
 use std::env::current_dir;
@@ -20,7 +20,6 @@ use std::fmt;
 
 #[derive(Debug, Parser)]
 #[clap(name = "zvmhelper", version)]
-#[clap(global_setting(AppSettings::DeriveDisplayOrder))]
 #[clap(args_conflicts_with_subcommands = true)]
 #[clap(disable_help_subcommand = true)]
 #[clap(help_expected = true)]
